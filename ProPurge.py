@@ -119,6 +119,34 @@ class ProPurge(Script):
                     "default_value": true,
                     "enabled": "_strokes > 1"
                 },
+                "_retract":
+                {
+                    "label": "Retract After Purge",
+                    "description": "Whether to wipe the nozzle on the purge line to prevent stringing. Minimum 2 strokes required.",
+                    "unit": "mm",
+                    "type": "bool",
+                    "default_value": true
+                },
+                "_rdist":
+                {
+                    "label": "Retract Distance",
+                    "description": "How far to retract the filament after purging",
+                    "unit": "mm",
+                    "type": "float",
+                    "default_value": 1,
+                    "minimum_value": 0,
+                    "enabled": "_retract"
+                },
+                "_rspeed":
+                {
+                    "label": "Retract Speed",
+                    "description": "How fast to retract the filament after purging",
+                    "unit": "mm/min",
+                    "type": "float",
+                    "default_value": 500,
+                    "minimum_value": 10,
+                    "enabled": "_retract"
+                },
                 "_filamentDiameter":
                 {
                     "label": "Filament Diameter",
@@ -208,15 +236,12 @@ class ProPurge(Script):
     def buildBlobGCode(self, X, Y, StartZ, EndZ, Flow, Speed, Zhop):
         purgeGcode = "; BEGIN PRO PURGE BLOB\n"
         purgeGcode += "G92 E0 ; RESET EXTRUDER \n"
-        purgeGcode += "G1 X" + str(X) + " Y" + str(Y) + " Z" + str(StartZ)
-        purgeGcode += " F" + str(Speed*2) + " ; Move to blob start position \n"
-        purgeGcode += "G1 X" + str(X) + " Y" + str(Y) + " Z" + str(EndZ)
-        purgeGcode += " F" + str(Speed) + " E" + str(Flow) + "\n"
-        purgeGcode += "G1 Z" + str(Zhop)
-        purgeGcode += " ; PRO PURGE END BLOB\n"
+        purgeGcode += "G1 X{} Y{} Z{} F{} ; Move to blob start position \n".format(X, Y, StartZ, Speed*2)
+        purgeGcode += "G1 X{} Y{} Z{} F{} E{} \n".format(X, Y, EndZ, Speed, Flow) + str(X) + " Y" + str(Y) + " Z" + str(EndZ)
+        purgeGcode += "G1 Z{} ; PRO PURGE END BLOB\n".format(Zhop)
         return purgeGcode
 
-    def buildGCode(self, Direction_, Margin_, Inset_, Length_, Height_, Flow_, Speed_, Zhop_, Strokes_, Spacing_, Wipe_, FilamentDiameter_, FlowPercent_):
+    def buildGCode(self, Direction_, Margin_, Inset_, Length_, Height_, Flow_, Speed_, Zhop_, Strokes_, Spacing_, Wipe_, Retract_, RetractDistance_, RetractSpeed_, FilamentDiameter_, FlowPercent_):
         global currentOffset
         if Flow_ == 0:
             Flow_ = self.calculateExtrusion(Spacing_, Height_, Length_, FilamentDiameter_, FlowPercent_)
@@ -228,37 +253,33 @@ class ProPurge(Script):
             lineAxis = "Y"
         purgeGcode = "; BEGIN PRO PURGE \n"
         purgeGcode += "G92 E0 ; RESET EXTRUDER \n"
-        purgeGcode += "G1 " + lineAxis + str(Margin_ + currentOffset) + " " + strokeAxis + str(Inset_) 
-        purgeGcode += " F" + str(Speed_*2) + " ; Move to purge start position \n"
-        purgeGcode += "G1 Z" + str(Zhop_) + "F" + str(Speed_) + " ; Move to Z Hop Height \n"
+        purgeGcode += "G1 {}{} {}{} F{} ; Move to purge start position \n".format(lineAxis, Margin_ + currentOffset, strokeAxis, Inset_, Speed_*2)
+        purgeGcode += "G1 Z{} F{} ; Move to Z Hop Height \n".format(Zhop_, Speed_)
         for thisStroke in range(0, Strokes_):
             # Print purge line one way
-            purgeGcode += "G1 " + lineAxis + str(Margin_ + currentOffset) + " " + strokeAxis + str(Inset_) 
-            purgeGcode += " Z" + str(Height_) + " F" + str(Speed_*2)
+            purgeGcode += "G1 {}{} {}{} Z{} F{}".format(lineAxis, Margin_ + currentOffset, strokeAxis, Inset_, Height_, Speed_*2)
             # purgeGcode += " ; PRO PURGE Move to start of line " + str(thisStroke + 1)
             purgeGcode += "\n"
             totalExtrude += Flow_
-            purgeGcode += "G1 " + lineAxis + str(Margin_ + currentOffset) + " " + strokeAxis + str(Inset_ + Length_) 
-            purgeGcode += " Z" + str(Height_) + " F" + str(Speed_) + " E" + str(totalExtrude)
+            purgeGcode += "G1 {}{} {}{} Z{} F{} E{}".format(lineAxis, Margin_ + currentOffset, strokeAxis, Inset_ + Length_, Height_, Speed_, totalExtrude)
             #purgeGcode += " ; PRO PURGE Draw Line " + str(thisStroke + 1)
             purgeGcode += "\n"
             currentOffset += Spacing_
-            purgeGcode += "G1 " + lineAxis + str(Margin_ + currentOffset) + " " + strokeAxis + str(Inset_ + Length_) 
-            purgeGcode += " Z" + str(Height_) + " F" + str(Speed_ * 2)
+            purgeGcode += "G1 {}{} {}{} Z{} F{}".format(lineAxis, Margin_ + currentOffset, strokeAxis, Inset_ + Length_, Height_, Speed_*2)
             #purgeGcode += " ; PRO PURGE Move to side " + str(thisStroke + 1)
             purgeGcode += "\n"
             totalExtrude += Flow_
-            purgeGcode += "G1 " + lineAxis + str(Margin_ + currentOffset) + " " + strokeAxis + str(Inset_) 
-            purgeGcode += " Z" + str(Height_) + " F" + str(Speed_) + " E" + str(totalExtrude)
+            purgeGcode += "G1 {}{} {}{} Z{} F{} E{}".format(lineAxis, Margin_ + currentOffset, strokeAxis, Inset_, Height_, Speed_, totalExtrude)
             #purgeGcode += " ; PRO PURGE Draw Return Line " + str(thisStroke + 1)
             purgeGcode += "\n"
             currentOffset += Spacing_
+        if Retract_:
+            totalExtrude -= RetractDistance_
+            purgeGcode += "G1 E{} F{} ;Retract Filament \n".format(totalExtrude, RetractSpeed_)
         purgeGcode += "G92 E0 ; RESET EXTRUDER \n"
         if Wipe_:
-            purgeGcode += "G1 " + lineAxis + str(Margin_ + currentOffset - (Spacing_ * 2)) + " " + strokeAxis + str(Inset_) 
-            purgeGcode += " Z" + str(Height_) + " F" + str(Speed_ * 2)
-            purgeGcode += " ; WIPE " + str(thisStroke + 1) + "\n"
-        purgeGcode += "G1 Z" + str(Zhop_) + "F" + str(Speed_) + " ; Move Z Axis Up \n"
+            purgeGcode += "G1 {}{} {}{} Z{} F{} ; WIPE {} \n".format(lineAxis, Margin_ + currentOffset - (Spacing_ * 2), strokeAxis, Inset_, Height_, Speed_ * 2, thisStroke + 1)
+        purgeGcode += "G1 Z{} F{} ; Move Z Axis Up \n".format(Zhop_, Speed_)
         purgeGcode += "; END PRO PURGE \n"
         return purgeGcode
 
@@ -276,6 +297,9 @@ class ProPurge(Script):
         _Strokes = self.getSettingValueByKey("_strokes")
         _Spacing = self.getSettingValueByKey("_spacing")
         _Wipe = self.getSettingValueByKey("_wipe")
+        _Retract = self.getSettingValueByKey("_retract")
+        _RetractDistance = self.getSettingValueByKey("_rdist")
+        _RetractSpeed = self.getSettingValueByKey("_rspeed")
         _FilamentDiameter = self.getSettingValueByKey("_filamentDiameter")
         _FlowPercent = self.getSettingValueByKey("_flowPercent")
         #Blob Specific Settings
@@ -286,7 +310,7 @@ class ProPurge(Script):
         _BlobZEnd = self.getSettingValueByKey("_blobZEnd")
         _BlobFlow = self.getSettingValueByKey("_blobFlow")
         currentOffset = 0
-        purge_gcode = self.buildGCode(_Direction, _Margin, _Inset, _Length, _Height, _Flow, _Speed, _Zhop, _Strokes, _Spacing, _Wipe, _FilamentDiameter, _FlowPercent)
+        purge_gcode = self.buildGCode(_Direction, _Margin, _Inset, _Length, _Height, _Flow, _Speed, _Zhop, _Strokes, _Spacing, _Wipe, _Retract, _RetractDistance, _RetractSpeed, _FilamentDiameter, _FlowPercent)
         if _Blob:
             blob_gcode = self.buildBlobGCode(_BlobX, _BlobY, _BlobZStart, _BlobZEnd, _BlobFlow, _Speed, _Zhop)
             purge_gcode = blob_gcode + purge_gcode;
