@@ -220,6 +220,13 @@ class ProPurge(Script):
                     "type": "float",
                     "default_value": 50,
                     "enabled": "_blob == 1"
+                },
+                "_dualExtruder":
+                {
+                    "label": "Blob Purge Dual Extruder",
+                    "description": "Whether to do a blob purge on both extruders",
+                    "type": "bool",
+                    "default_value": false
                 }
             }
         }"""
@@ -233,11 +240,15 @@ class ProPurge(Script):
         return math.abs(math.sqrt(math.pow(StartX - EndX, 2) + math.pow(StartY - EndY, 2)))
 
     # Generate a blob to purge filament
-    def buildBlobGCode(self, X, Y, StartZ, EndZ, Flow, Speed, Zhop):
+    def buildBlobGCode(self, X, Y, StartZ, EndZ, Flow, Speed, Zhop, DualExtruder):
         purgeGcode = "; BEGIN PRO PURGE BLOB\n"
         purgeGcode += "G92 E0 ; RESET EXTRUDER \n"
         purgeGcode += "G1 X{} Y{} Z{} F{} ; Move to blob start position \n".format(X, Y, StartZ, Speed*2)
-        purgeGcode += "G1 X{} Y{} Z{} F{} E{} \n".format(X, Y, EndZ, Speed, Flow) + str(X) + " Y" + str(Y) + " Z" + str(EndZ)
+        purgeGcode += "G1 X{} Y{} Z{} F{} E{} ; PRO PURGE EXTRUDE BLOB FROM PRIMARY EXTRUDER\n".format(X, Y, EndZ, Speed, Flow)
+        if DualExtruder:
+            purgeGcode += "T1 ; PRO PURGE SWITCH TO SECONDARY EXTRUDER\n"
+            purgeGcode += "G1 X{} Y{} Z{} F{} E{}; PRO PURGE EXTRUDE BLOB FROM SECONDARY EXTRUDER \n".format(X, Y, EndZ, Speed, Flow)
+            purgeGcode += "T0 ; PRO PURGE SWITCH BACK TO PRIMARY EXTRUDER\n"
         purgeGcode += "G1 Z{} ; PRO PURGE END BLOB\n".format(Zhop)
         return purgeGcode
 
@@ -309,10 +320,11 @@ class ProPurge(Script):
         _BlobZStart = self.getSettingValueByKey("_blobZStart")
         _BlobZEnd = self.getSettingValueByKey("_blobZEnd")
         _BlobFlow = self.getSettingValueByKey("_blobFlow")
+        _DualExtruder = self.getSettingValueByKey("_dualExtruder")
         currentOffset = 0
         purge_gcode = self.buildGCode(_Direction, _Margin, _Inset, _Length, _Height, _Flow, _Speed, _Zhop, _Strokes, _Spacing, _Wipe, _Retract, _RetractDistance, _RetractSpeed, _FilamentDiameter, _FlowPercent)
         if _Blob:
-            blob_gcode = self.buildBlobGCode(_BlobX, _BlobY, _BlobZStart, _BlobZEnd, _BlobFlow, _Speed, _Zhop)
+            blob_gcode = self.buildBlobGCode(_BlobX, _BlobY, _BlobZStart, _BlobZEnd, _BlobFlow, _Speed, _Zhop, _DualExtruder)
             purge_gcode = blob_gcode + purge_gcode;
         # Find the beginning of the print and insert the purge code there
         for layer in data:
